@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拟真桌球 · 双人 8 球对战</title>
+<style>
+  :root{
+    --bg:#0e1316; --panel:#161d22; --line:#26323a; --txt:#e8eef2; --dim:#8a99a4;
+    --acc:#35d08a; --p0:#ffb020; --p1:#4db5ff; --bad:#ff6a4a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 50% -10%, #1c282e 0%, var(--bg) 62%) fixed;
+    color:var(--txt);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  /* 宽度同时受窗口宽、窗口高约束，保证整张球桌尽量一屏显示 */
+  .app{
+    width:min(calc(100vw - 24px), max(560px, min(1120px, calc((100vh - 300px) * 1.7857))));
+    margin:0 auto; padding:14px 0 22px;
+  }
+  header{display:flex;align-items:baseline;justify-content:space-between;padding:0 4px 10px}
+  header h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.04em}
+  header h1 small{font-size:12px;font-weight:400;color:var(--dim);margin-left:10px;letter-spacing:.02em}
+  #score{font-size:14px;color:var(--dim);font-variant-numeric:tabular-nums}
+  #score b{color:var(--txt);font-size:17px;margin:0 2px}
+
+  /* ---------- 玩家信息 / 回合提示 ---------- */
+  .board{display:grid;grid-template-columns:1fr minmax(220px,1.25fr) 1fr;gap:10px;margin-bottom:10px}
+  .pcard{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;
+    border-top:3px solid var(--line);transition:border-color .25s, box-shadow .25s, opacity .25s;opacity:.62;min-width:0;
+  }
+  .pcard.active{opacity:1}
+  #card0.active{border-top-color:var(--p0);box-shadow:0 0 0 1px rgba(255,176,32,.28), 0 8px 26px rgba(255,176,32,.10)}
+  #card1.active{border-top-color:var(--p1);box-shadow:0 0 0 1px rgba(77,181,255,.28), 0 8px 26px rgba(77,181,255,.10)}
+  .phead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .pname{font-size:16px;font-weight:700}
+  #card0 .pname{color:var(--p0)} #card1 .pname{color:var(--p1)}
+  .ptag{font-size:11px;padding:2px 8px;border-radius:99px;background:#222c33;color:var(--dim);white-space:nowrap}
+  .pcard.active .ptag{background:rgba(53,208,138,.16);color:var(--acc)}
+  .pgroup{font-size:12px;color:var(--dim);margin:5px 0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tray{display:flex;flex-wrap:wrap;gap:4px;min-height:22px}
+  .tray em{font-style:normal;font-size:12px;color:#5d6b75;line-height:22px}
+  .mini{
+    width:22px;height:22px;border-radius:50%;display:inline-grid;place-items:center;background:var(--c);
+    box-shadow:inset -2px -3px 5px rgba(0,0,0,.4), inset 2px 2px 3px rgba(255,255,255,.35);transition:opacity .3s;
+  }
+  .mini.stripe{background:linear-gradient(#f6f3ea 0 24%, var(--c) 24% 76%, #f6f3ea 76%)}
+  .mini i{font:700 8.5px/12px Arial,sans-serif;font-style:normal;width:12px;height:12px;border-radius:50%;background:#f6f3ea;color:#111;text-align:center}
+  .mini.gone{opacity:.2;filter:grayscale(.7)}
+
+  .status{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;
+    display:flex;flex-direction:column;justify-content:center;text-align:center;min-width:0;
+  }
+  .turn{font-size:19px;font-weight:700;letter-spacing:.03em}
+  .turn.p0{color:var(--p0)} .turn.p1{color:var(--p1)}
+  .sub{font-size:13px;color:var(--txt);opacity:.85;margin-top:3px}
+  .last{font-size:12px;color:var(--dim);margin-top:6px;min-height:17px;line-height:1.45}
+  .last.bad{color:var(--bad)}
+
+  /* ---------- 球桌 ---------- */
+  .tablewrap{position:relative;border-radius:18px;box-shadow:0 22px 50px rgba(0,0,0,.55), 0 2px 0 rgba(255,255,255,.05) inset}
+  canvas{display:block;width:100%;border-radius:18px;touch-action:none;cursor:default}
+  #overlay{
+    position:absolute;inset:0;display:none;place-items:center;border-radius:18px;
+    background:rgba(8,12,14,.62);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+  }
+  #overlay.show{display:grid}
+  .ovbox{background:rgba(22,29,34,.94);border:1px solid var(--line);border-radius:16px;padding:26px 38px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  #ovTitle{font-size:30px;font-weight:800;letter-spacing:.06em}
+  #ovReason{font-size:14px;color:var(--dim);margin:8px 0 18px}
+
+  /* ---------- 控制面板 ---------- */
+  .ctrl{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:10px;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;
+  }
+  .power{display:flex;align-items:center;gap:10px;flex:1 1 260px;min-width:220px}
+  .plabel{font-size:12px;color:var(--dim);letter-spacing:.2em}
+  .ptrack{position:relative;flex:1;height:12px;border-radius:99px;overflow:hidden;background:linear-gradient(90deg,#35d08a 0%,#f5d142 55%,#ff5a3c 100%)}
+  .pcover{position:absolute;right:0;top:0;bottom:0;width:100%;background:#0f1519;transition:width .05s linear}
+  .pval{font-size:13px;width:44px;text-align:right;font-variant-numeric:tabular-nums}
+  #tableLeft{font-size:12px;color:var(--dim);white-space:nowrap}
+  .btns{display:flex;gap:8px;margin-left:auto}
+  button{
+    font:inherit;font-size:13px;font-weight:600;color:#06281a;background:var(--acc);border:0;border-radius:9px;
+    padding:8px 16px;cursor:pointer;transition:transform .08s, filter .15s;
+  }
+  button:hover{filter:brightness(1.08)} button:active{transform:translateY(1px)}
+  button.ghost{background:#222c33;color:var(--txt);border:1px solid var(--line)}
+  details.rules{margin-top:10px;font-size:12.5px;color:var(--dim);line-height:1.75;padding:0 4px}
+  details.rules summary{cursor:pointer;color:var(--txt);opacity:.8}
+  details.rules ul{margin:6px 0 0;padding-left:20px}
+  @media (max-width:760px){
+    .board{grid-template-columns:1fr 1fr}
+    .status{grid-column:1 / -1;grid-row:1}
+    .btns{margin-left:0}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>拟真桌球<small>双人 8 球对战</small></h1>
+    <div id="score">比分 <b id="w0">0</b>:<b id="w1">0</b></div>
+  </header>
+
+  <section class="board">
+    <div class="pcard" id="card0">
+      <div class="phead"><span class="pname">玩家 1</span><span class="ptag" id="tag0">等待</span></div>
+      <div class="pgroup" id="group0">球组待定</div>
+      <div class="tray" id="tray0"></div>
+    </div>
+    <div class="status">
+      <div class="turn" id="turnMain">玩家 1 开球</div>
+      <div class="sub" id="turnSub"></div>
+      <div class="last" id="lastShot"></div>
+    </div>
+    <div class="pcard" id="card1">
+      <div class="phead"><span class="pname">玩家 2</span><span class="ptag" id="tag1">等待</span></div>
+      <div class="pgroup" id="group1">球组待定</div>
+      <div class="tray" id="tray1"></div>
+    </div>
+  </section>
+
+  <div class="tablewrap">
+    <canvas id="table"></canvas>
+    <div id="overlay">
+      <div class="ovbox">
+        <div id="ovTitle">玩家 1 获胜</div>
+        <div id="ovReason"></div>
+        <button id="btnAgain">再来一局</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="ctrl">
+    <div class="power">
+      <span class="plabel">力度</span>
+      <div class="ptrack"><div class="pcover" id="powerCover"></div></div>
+      <span class="pval" id="powerVal">0%</span>
+    </div>
+    <div id="tableLeft"></div>
+    <div class="btns">
+      <button class="ghost" id="btnSound">音效：开</button>
+      <button id="btnRestart">重新开始</button>
+    </div>
+  </section>
+
+  <details class="rules">
+    <summary>操作与规则说明</summary>
+    <ul>
+      <li>击球：按住白球向后拖拽，拖得越远力度越大，松开击球；拖拽时滚动滚轮可微调力度，按 Esc 或右键取消。</li>
+      <li>两名玩家轮流击球。开球后球局开放，第一颗合法打进的球决定球组：全色球（1–7）或花色球（9–15）。</li>
+      <li>打进自己球组的球且没有犯规，可以继续击球；否则交换击球权。</li>
+      <li>犯规：白球落袋、白球没有碰到任何球、白球先碰到的不是自己的目标球。犯规后对手获得自由球，可把白球放在台面任意位置。</li>
+      <li>清完自己球组后打进黑 8 获胜；提前打进黑 8，或打进黑 8 的同时犯规，判负。</li>
+      <li>开球时白球可在开球线左侧重新摆放（双击白球）；自由球放下后也可以双击白球重新摆放。</li>
+    </ul>
+  </details>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* =====================================================================
+   一、常量：球桌尺寸、物理参数
+   所有坐标都使用 1000 x 560 的“逻辑坐标”，绘制时再整体缩放到屏幕像素
+   ===================================================================== */
+const VW = 1000, VH = 560;                 // 逻辑画布尺寸
+const RAIL = 38, CUSH = 22;                // 木框宽度、库边（胶条）厚度
+const L = RAIL + CUSH, T = RAIL + CUSH;    // 可击球区域（库边鼻线）左、上
+const R = VW - L, B = VH - T;              // 右、下
+const FW = R - L, FH = B - T;              // 台面 880 x 440，标准 2:1
+const CX = VW / 2, CY = VH / 2;
+const BR = 11, DIAM = BR * 2, DIAM2 = DIAM * DIAM;   // 球半径 / 直径
+const HEAD_X = L + FW * 0.25;              // 开球线（白球初始位置）
+const FOOT_X = L + FW * 0.75;              // 置球点（三角球堆的顶点）
+const CORNER_CUT = 30, SIDE_HALF = 23;     // 角袋、中袋的袋口尺寸
+
+const SUB_DT = 1 / 480;                    // 物理子步长：一帧内细分多步，防止高速球穿透
+const FRICTION_C = 42;                     // 滚动摩擦：恒定减速度（像素/秒²）
+const FRICTION_K = 0.58;                   // 与速度成正比的阻力系数（1/秒），模拟台呢阻力
+const STOP_V = 5;                          // 速度低于该值视为停止
+const E_BALL = 0.96;                       // 球-球恢复系数（1 为完全弹性，<1 表示能量损耗）
+const E_CUSH = 0.76;                       // 球-库边恢复系数
+const CUSH_TANGENT = 0.97;                 // 碰库时沿库边方向的速度保留比例
+const MAX_SHOT = 2400;                   // 满力度时白球初速度（像素/秒）
+const PULL_DEAD = 14, PULL_MAX = 210;      // 拖拽死区、满力度所需的拖拽距离
+const GRAB_R = BR * 2.8;                   // 鼠标在白球周围多大范围内算“按住白球”
+const STRIKE_TIME = 0.075;                 // 出杆动画时长，动画结束的瞬间才真正击球
+
+const PNAME = ['玩家 1', '玩家 2'];
+const GNAME = { solid: '全色球（1–7）', stripe: '花色球（9–15）' };
+
+/* 六个球袋：r 为绘制半径，cap 为进洞判定半径（球心进入该范围即落袋） */
+const POCKETS = [
+  { x: L - 5, y: T - 5,  r: 21, cap: 18 }, { x: CX, y: T - 13, r: 19, cap: 16 }, { x: R + 5, y: T - 5,  r: 21, cap: 18 },
+  { x: L - 5, y: B + 5,  r: 21, cap: 18 }, { x: CX, y: B + 13, r: 19, cap: 16 }, { x: R + 5, y: B + 5,  r: 21, cap: 18 }
+];
+
+/* 六条库边，每条是一个梯形：[后角1, 鼻线端点1, 鼻线端点2, 后角2]
+   两端的斜边就是袋口的“袋角”，球可以真实地撞在袋角上被弹开或滑进袋里 */
+const CUSHIONS = [
+  [[L + CORNER_CUT - CUSH, T - CUSH], [L + CORNER_CUT, T], [CX - SIDE_HALF, T], [CX - SIDE_HALF + 5, T - CUSH]],
+  [[CX + SIDE_HALF - 5, T - CUSH], [CX + SIDE_HALF, T], [R - CORNER_CUT, T], [R - CORNER_CUT + CUSH, T - CUSH]],
+  [[L + CORNER_CUT - CUSH, B + CUSH], [L + CORNER_CUT, B], [CX - SIDE_HALF, B], [CX - SIDE_HALF + 5, B + CUSH]],
+  [[CX + SIDE_HALF - 5, B + CUSH], [CX + SIDE_HALF, B], [R - CORNER_CUT, B], [R - CORNER_CUT + CUSH, B + CUSH]],
+  [[L - CUSH, T + CORNER_CUT - CUSH], [L, T + CORNER_CUT], [L, B - CORNER_CUT], [L - CUSH, B - CORNER_CUT + CUSH]],
+  [[R + CUSH, T + CORNER_CUT - CUSH], [R, T + CORNER_CUT], [R, B - CORNER_CUT], [R + CUSH, B - CORNER_CUT + CUSH]]
+];
+/* 把每个梯形拆成 3 条线段，碰撞检测时统一按“球 vs 线段”处理 */
+const SEGS = [];
+CUSHIONS.forEach(function(p){
+  for (let i = 0; i < 3; i++){
+    const a = p[i], b = p[i + 1], dx = b[0] - a[0], dy = b[1] - a[1];
+    SEGS.push({ ax: a[0], ay: a[1], dx: dx, dy: dy, il2: 1 / (dx * dx + dy * dy) });
+  }
+});
+
+/* 球的颜色：1–7 全色，9–15 为同色花色球，8 为黑球，0 为白球 */
+const COLORS = {
+  1: [245, 196, 20], 2: [30, 84, 200], 3: [214, 40, 40], 4: [110, 50, 160],
+  5: [240, 120, 20], 6: [22, 130, 70], 7: [128, 30, 36], 8: [22, 22, 24]
+};
+function colorOf(n){ return n === 0 ? [250, 247, 238] : COLORS[n > 8 ? n - 8 : n]; }
+function typeOf(n){ return n === 8 ? 'eight' : (n < 8 ? 'solid' : 'stripe'); }
+function clamp(v, a, b){ return v < a ? a : (v > b ? b : v); }
+
+/* =====================================================================
+   二、音效：全部用 Web Audio API 实时合成，不加载任何音频文件
+   ===================================================================== */
+const Sfx = {
+  ctx: null, out: null, noiseBuf: null, enabled: true, lastBall: 0, lastCush: 0,
+  /* 浏览器要求音频必须由用户手势启动，所以在第一次按下鼠标时才创建 AudioContext */
+  init: function(){
+    if (this.ctx){ if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = this.ctx = new AC();
+    const comp = ctx.createDynamicsCompressor();          // 压限器：多颗球同时碰撞时防止爆音
+    comp.threshold.value = -14; comp.ratio.value = 5; comp.attack.value = 0.002; comp.release.value = 0.12;
+    this.out = ctx.createGain(); this.out.gain.value = 0.9;
+    this.out.connect(comp); comp.connect(ctx.destination);
+    const len = Math.floor(ctx.sampleRate * 0.5);         // 0.5 秒白噪声，供所有撞击声复用
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    this.noiseBuf = buf;
+  },
+  ok: function(){ return this.enabled && this.ctx !== null; },
+  /* 噪声脉冲：白噪声 → 滤波器 → 1 毫秒起音 + 指数衰减。撞击声的“质感”主要来自它 */
+  noise: function(type, freq, q, vol, dur, when){
+    const c = this.ctx, t = c.currentTime + (when || 0);
+    const src = c.createBufferSource(); src.buffer = this.noiseBuf;
+    const f = c.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + 0.001);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.out);
+    src.start(t, Math.random() * 0.3); src.stop(t + dur + 0.02);
+  },
+  /* 音调脉冲：振荡器频率从 f0 滑到 f1，同样是极快起音 + 指数衰减 */
+  tone: function(type, f0, f1, vol, dur, when){
+    const c = this.ctx, t = c.currentTime + (when || 0);
+    const o = c.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + 0.0015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.out);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+  /* 球杆击打白球：清脆的“嗒”。power 为 0–1 的击球力度，力度越大越响 */
+  cue: function(power){
+    if (!this.ok()) return;
+    const v = 0.35 + 0.65 * power;
+    this.noise('bandpass', 3600, 0.8, 0.90 * v, 0.045);   // 皮头触球的高频瞬态，“脆”的主要来源
+    this.noise('highpass', 6000, 0.7, 0.35 * v, 0.018);   // 极短的高频“咔”，增加锐度
+    this.tone('triangle', 2100, 1150, 0.55 * v, 0.050);   // 明亮的主音，频率快速下滑
+    this.tone('sine', 3200, 2900, 0.16 * v, 0.090);       // 一点点余振，让声音不发闷
+    this.tone('sine', 230, 120, 0.20 * v, 0.050);         // 少量低频，给撞击一点分量但不发闷
+  },
+  /* 球与球相撞：比击球声更短、更高 */
+  ball: function(vn){
+    if (!this.ok() || vn < 25) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastBall < 0.012) return;              // 限流：同一瞬间的多次碰撞只响一声
+    this.lastBall = now;
+    const v = clamp(vn / 1100, 0.04, 1);
+    this.noise('bandpass', 4300, 1.2, 0.75 * v, 0.022);
+    this.tone('sine', 3100, 2500, 0.32 * v, 0.030);
+  },
+  /* 球撞库边：低沉的闷响 */
+  cushion: function(vn){
+    if (!this.ok() || vn < 40) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastCush < 0.02) return;
+    this.lastCush = now;
+    const v = clamp(vn / 1200, 0.05, 1);
+    this.noise('lowpass', 420, 0.7, 0.8 * v, 0.09);
+    this.tone('sine', 150, 80, 0.35 * v, 0.09);
+  },
+  /* 落袋：球掉进袋里的“咚”加一声滚动的余响 */
+  pocket: function(){
+    if (!this.ok()) return;
+    this.noise('lowpass', 700, 0.8, 0.55, 0.10);
+    this.tone('sine', 170, 62, 0.6, 0.24);
+    this.noise('lowpass', 320, 0.6, 0.3, 0.16, 0.11);
+    this.tone('sine', 110, 55, 0.3, 0.2, 0.12);
+  },
+  foul: function(){
+    if (!this.ok()) return;
+    this.tone('square', 220, 200, 0.10, 0.16);
+    this.tone('square', 165, 150, 0.10, 0.24, 0.17);
+  },
+  win: function(){
+    if (!this.ok()) return;
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    for (let i = 0; i < notes.length; i++) this.tone('triangle', notes[i], notes[i], 0.22, 0.32, i * 0.12);
+  }
+};
+
+/* =====================================================================
+   三、球体贴图：逐像素渲染一个真正会“滚动”的 3D 球
+   每个球保存一个 3x3 旋转矩阵 rot（球自身坐标 → 观察坐标）。
+   渲染时对球面上每个像素求出法线 n，再用 rot 的转置把 n 变回球自身坐标，
+   就能知道这个像素落在色带、号码圆还是纯色区域上。
+   ===================================================================== */
+const SPR = 64, SPR_R = SPR / 2 - 1;       // 贴图边长、贴图中球的像素半径
+const NT = 48;                             // 号码贴图边长
+const CAP_SIN = 0.56, CAP_COS = Math.sqrt(1 - CAP_SIN * CAP_SIN);   // 号码白圆的大小
+const BAND = 0.5;                          // 花色球色带的半宽
+const DOT = 0.982;                         // 白球上红点的大小（方便看清白球的滚动）
+
+/* 预计算：球面每个像素的法线、漫反射明暗、高光、边缘抗锯齿透明度（所有球共用） */
+const PIDX = [], PNX = [], PNY = [], PNZ = [], PSH = [], PSP = [], PAL = [];
+(function(){
+  let lx = -0.42, ly = -0.58, lz = 0.70;                       // 光源方向：左上方
+  const ll = Math.hypot(lx, ly, lz); lx /= ll; ly /= ll; lz /= ll;
+  let hx = lx, hy = ly, hz = lz + 1;                           // 半角向量（光源方向与视线方向的中间）
+  const hl = Math.hypot(hx, hy, hz); hx /= hl; hy /= hl; hz /= hl;
+  for (let y = 0; y < SPR; y++){
+    for (let x = 0; x < SPR; x++){
+      const sx = (x + 0.5 - SPR / 2) / SPR_R, sy = (y + 0.5 - SPR / 2) / SPR_R;
+      const d = Math.hypot(sx, sy);
+      const alpha = clamp((1 - d) * SPR_R + 0.5, 0, 1);
+      if (alpha <= 0) continue;
+      let nx = sx, ny = sy;
+      if (d > 0.995){ nx *= 0.995 / d; ny *= 0.995 / d; }
+      const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+      const dif = Math.max(0, nx * lx + ny * ly + nz * lz);
+      const spec = Math.pow(Math.max(0, nx * hx + ny * hy + nz * hz), 56);
+      PIDX.push((y * SPR + x) * 4); PNX.push(nx); PNY.push(ny); PNZ.push(nz);
+      PSH.push((0.34 + 0.74 * dif) * (0.78 + 0.22 * nz));      // 漫反射 + 边缘压暗
+      PSP.push(230 * spec);                                    // 高光
+      PAL.push(Math.round(alpha * 255));
+    }
+  }
+})();
+const PN = PIDX.length;
+
+/* 号码贴图：白底黑字，只取亮度 */
+function numberTexture(num){
+  const c = document.createElement('canvas'); c.width = c.height = NT;
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, NT, NT);
+  x.fillStyle = '#000'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.font = 'bold ' + (num > 9 ? 24 : 30) + 'px Arial, Helvetica, sans-serif';
+  x.fillText(String(num), NT / 2, NT / 2 + 2);
+  const d = x.getImageData(0, 0, NT, NT).data, out = new Uint8Array(NT * NT);
+  for (let i = 0; i < NT * NT; i++) out[i] = d[i * 4];
+  return out;
+}
+
+function renderSprite(b){
+  const m = b.rot, data = b.img.data, num = b.num, col = colorOf(num), tex = b.tex, stripe = num > 8;
+  const r00 = m[0], r01 = m[1], r02 = m[2], r10 = m[3], r11 = m[4], r12 = m[5], r20 = m[6], r21 = m[7], r22 = m[8];
+  for (let i = 0; i < PN; i++){
+    const nx = PNX[i], ny = PNY[i], nz = PNZ[i];
+    // 观察坐标下的法线 → 球自身坐标（旋转矩阵的逆 = 转置）
+    const lx = r00 * nx + r10 * ny + r20 * nz;
+    const ly = r01 * nx + r11 * ny + r21 * nz;
+    const lz = r02 * nx + r12 * ny + r22 * nz;
+    let cr, cg, cb;
+    if (num === 0){
+      const ax = lx < 0 ? -lx : lx, ay = ly < 0 ? -ly : ly, az = lz < 0 ? -lz : lz;
+      if (ax > DOT || ay > DOT || az > DOT){ cr = 205; cg = 32; cb = 44; }
+      else { cr = 250; cg = 247; cb = 238; }
+    } else {
+      const az = lz < 0 ? -lz : lz;
+      if (az > CAP_COS){                                       // 球的两极：白色号码圆
+        const u = (lz > 0 ? lx : -lx) / CAP_SIN, v = ly / CAP_SIN;
+        const tx = clamp(((u * 0.5 + 0.5) * NT) | 0, 0, NT - 1), ty = clamp(((v * 0.5 + 0.5) * NT) | 0, 0, NT - 1);
+        const k = tex[ty * NT + tx] / 255;
+        cr = 24 + k * 226; cg = 24 + k * 223; cb = 26 + k * 212;
+      } else if (stripe && (ly > BAND || ly < -BAND)){         // 花色球色带以外是白色
+        cr = 250; cg = 247; cb = 238;
+      } else { cr = col[0]; cg = col[1]; cb = col[2]; }
+    }
+    const sh = PSH[i], sp = PSP[i], o = PIDX[i];
+    data[o] = cr * sh + sp; data[o + 1] = cg * sh + sp; data[o + 2] = cb * sh + sp; data[o + 3] = PAL[i];
+  }
+  b.sctx.putImageData(b.img, 0, 0);
+  b.dirty = false;
+}
+
+/* 滚动：球沿单位方向 (dx,dy) 前进了 theta 弧度（= 位移 / 半径）。
+   几何意义：把“朝向观察者的 z 轴”向运动方向倾倒 theta 角，即
+   M = I + (cosθ-1)(d dᵀ + z zᵀ) + sinθ (d zᵀ - z dᵀ)，然后 rot ← M · rot */
+function rollBall(b, dx, dy, theta){
+  const m = b.rot, c = Math.cos(theta) - 1, s = Math.sin(theta);
+  const m00 = 1 + c * dx * dx, m01 = c * dx * dy, m11 = 1 + c * dy * dy, m02 = s * dx, m12 = s * dy, m22 = 1 + c;
+  for (let j = 0; j < 3; j++){
+    const a = m[j], e = m[3 + j], g = m[6 + j];
+    m[j]     = m00 * a + m01 * e + m02 * g;
+    m[3 + j] = m01 * a + m11 * e + m12 * g;
+    m[6 + j] = -m02 * a - m12 * e + m22 * g;
+  }
+  if (++b.rollN % 240 === 0) orthonormalize(m);                // 定期正交化，消除浮点累积误差
+  b.dirty = true;
+}
+function orthonormalize(m){
+  let x0 = m[0], x1 = m[3], x2 = m[6], y0 = m[1], y1 = m[4], y2 = m[7];
+  let l = Math.hypot(x0, x1, x2); x0 /= l; x1 /= l; x2 /= l;
+  const d = x0 * y0 + x1 * y1 + x2 * y2; y0 -= d * x0; y1 -= d * x1; y2 -= d * x2;
+  l = Math.hypot(y0, y1, y2); y0 /= l; y1 /= l; y2 /= l;
+  m[0] = x0; m[3] = x1; m[6] = x2; m[1] = y0; m[4] = y1; m[7] = y2;
+  m[2] = x1 * y2 - x2 * y1; m[5] = x2 * y0 - x0 * y2; m[8] = x0 * y1 - x1 * y0;
+}
+
+function makeBall(num, x, y){
+  const spr = document.createElement('canvas'); spr.width = spr.height = SPR;
+  const sctx = spr.getContext('2d');
+  const a = Math.random() * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);
+  return {
+    num: num, x: x, y: y, vx: 0, vy: 0, potted: false, sink: null,
+    rot: [c, -s, 0, s, c, 0, 0, 0, 1], rollN: 0,               // 初始号码朝上，绕竖直轴随机转一个角度
+    spr: spr, sctx: sctx, img: sctx.createImageData(SPR, SPR), dirty: true,
+    tex: num > 0 ? numberTexture(num) : null
+  };
+}
+
+/* =====================================================================
+   四、游戏状态
+   phase： place 摆放白球 / aim 瞄准 / strike 出杆动画 / moving 球在滚动 / over 结束
+   ===================================================================== */
+const G = {
+  balls: [], cue: null, phase: 'aim',
+  cur: 0, breaker: 0, groups: [null, null], wins: [0, 0],
+  isBreak: true, ballInHand: true, kitchen: true,
+  shot: null, drag: null, trim: 1, strike: null, stickFade: null,
+  placing: false, placeOK: true, settle: 0, time: 0, winner: -1, last: '', lastBad: false
+};
+let acc = 0;                               // 物理时间累加器
+
+function shuffle(a){
+  for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+function remaining(group){
+  let n = 0;
+  for (let i = 0; i < G.balls.length; i++){ const b = G.balls[i]; if (!b.potted && b.num !== 0 && typeOf(b.num) === group) n++; }
+  return n;
+}
+/* 当前玩家这一杆的合法目标：open 球局开放 / solid / stripe / eight */
+function targetOf(p){
+  const g = G.groups[p];
+  if (!g) return 'open';
+  return remaining(g) === 0 ? 'eight' : g;
+}
+/* (x,y) 处能否放下一颗球：不与其它球重叠 */
+function isFree(x, y, self){
+  const lim = (DIAM + 0.5) * (DIAM + 0.5);
+  for (let i = 0; i < G.balls.length; i++){
+    const b = G.balls[i];
+    if (b === self || b.potted) continue;
+    const dx = b.x - x, dy = b.y - y;
+    if (dx * dx + dy * dy < lim) return false;
+  }
+  return true;
+}
+function validPlace(x, y){
+  const maxX = G.kitchen ? HEAD_X : R - BR;
+  if (x < L + BR || x > maxX || y < T + BR || y > B - BR) return false;
+  return isFree(x, y, G.cue);
+}
+/* 从 (x,y) 开始一圈圈向外找最近的空位 */
+function findFree(x, y, self){
+  for (let rad = 0; rad < 420; rad += 3){
+    const steps = rad === 0 ? 1 : 24;
+    for (let i = 0; i < steps; i++){
+      const a = i / steps * Math.PI * 2, px = x + Math.cos(a) * rad, py = y + Math.sin(a) * rad;
+      if (px < L + BR || px > R - BR || py < T + BR || py > B - BR) continue;
+      if (isFree(px, py, self)) return { x: px, y: py };
+    }
+  }
+  return { x: x, y: y };
+}
+
+function newGame(){
+  if (G.phase === 'over') G.breaker = 1 - G.breaker;         // 打完一局后换另一位玩家开球
+  G.balls = [];
+  G.cue = makeBall(0, HEAD_X, CY);
+  G.balls.push(G.cue);
+  // 三角球堆：黑 8 在第三排中间，底排两个角一全色一花色，其余随机
+  const solids = shuffle([1, 2, 3, 4, 5, 6, 7]), stripes = shuffle([9, 10, 11, 12, 13, 14, 15]);
+  const order = new Array(15), flip = Math.random() < 0.5;
+  order[4] = 8;
+  order[10] = flip ? solids.pop() : stripes.pop();
+  order[14] = flip ? stripes.pop() : solids.pop();
+  const rest = shuffle(solids.concat(stripes));
+  for (let i = 0; i < 15; i++) if (order[i] === undefined) order[i] = rest.pop();
+  const gap = DIAM + 0.6;
+  let k = 0;
+  for (let row = 0; row < 5; row++){
+    for (let j = 0; j <= row; j++){
+      const x = FOOT_X + row * gap * 0.8660254 + (Math.random() - 0.5) * 0.3;
+      const y = CY + (j - row / 2) * gap + (Math.random() - 0.5) * 0.3;
+      G.balls.push(makeBall(order[k++], x, y));
+    }
+  }
+  G.cur = G.breaker; G.groups = [null, null];
+  G.isBreak = true; G.ballInHand = true; G.kitchen = true;
+  G.shot = null; G.drag = null; G.strike = null; G.stickFade = null; G.placing = false; G.placeOK = true;
+  G.phase = 'aim'; G.winner = -1; G.settle = 0; acc = 0;
+  G.last = '新的一局，' + PNAME[G.cur] + ' 开球。'; G.lastBad = false;
+  el.overlay.classList.remove('show');
+  setPower(0);
+  updateHUD();
+}
+
+/* =====================================================================
+   五、物理引擎
+   ===================================================================== */
+function potBall(b, pk){
+  b.potted = true; b.vx = 0; b.vy = 0;
+  b.sink = { t: 0, x0: b.x, y0: b.y, px: pk.x, py: pk.y };    // 落袋动画：滑向袋心并缩小淡出
+  G.shot.potted.push(b.num);
+  if (b.num === 0) G.shot.cuePotted = true;
+  Sfx.pocket();
+  updateHUD();
+}
+
+function physicsStep(dt){
+  const bs = G.balls, n = bs.length;
+
+  /* ---- 1. 运动积分 + 摩擦 ----
+     位置：x += v·dt
+     摩擦：减速度 a = C + K·|v|。C 是恒定的滚动摩擦，K·|v| 让高速球损失更快，
+     两者合起来的效果是“先快后慢，最后干脆地停住”。只改变速度大小，不改变方向。 */
+  for (let i = 0; i < n; i++){
+    const b = bs[i];
+    if (b.potted) continue;
+    const sp = Math.hypot(b.vx, b.vy);
+    if (sp === 0) continue;
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    rollBall(b, b.vx / sp, b.vy / sp, sp * dt / BR);            // 让球面贴图跟着滚动
+    const ns = sp - (FRICTION_C + FRICTION_K * sp) * dt;
+    if (ns <= STOP_V){ b.vx = 0; b.vy = 0; }
+    else { const k = ns / sp; b.vx *= k; b.vy *= k; }
+  }
+
+  /* ---- 2. 球与球的碰撞（等质量刚体，动量守恒 + 能量损耗） ----
+     设两球球心连线的单位向量为 n（从 a 指向 b）：
+     · 两球重叠时，先沿 n 各退一半重叠量，把它们分开；
+     · 相对速度在 n 上的分量 vn = (va - vb)·n，vn > 0 表示正在靠近；
+     · 沿 n 交换冲量 j = (1 + e)/2 · vn：a 减去 j·n，b 加上 j·n。
+       e = 1 时法向速度完全交换（完全弹性），e < 1 时损失一部分动能；
+       切向（垂直于 n）的速度分量保持不变。总动量 va + vb 在碰撞前后严格相等。 */
+  for (let i = 0; i < n; i++){
+    const a = bs[i];
+    if (a.potted) continue;
+    for (let j = i + 1; j < n; j++){
+      const b = bs[j];
+      if (b.potted) continue;
+      const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
+      if (d2 >= DIAM2 || d2 === 0) continue;
+      const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+      const ov = (DIAM - d) / 2;
+      a.x -= nx * ov; a.y -= ny * ov; b.x += nx * ov; b.y += ny * ov;
+      const vn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+      if (vn <= 0) continue;                                    // 已经在分离，不再施加冲量
+      const jimp = (1 + E_BALL) / 2 * vn;
+      a.vx -= jimp * nx; a.vy -= jimp * ny;
+      b.vx += jimp * nx; b.vy += jimp * ny;
+      if (G.shot.firstHit < 0){                                 // 记录白球第一颗碰到的球，供规则判定
+        if (a.num === 0) G.shot.firstHit = b.num; else if (b.num === 0) G.shot.firstHit = a.num;
+      }
+      Sfx.ball(vn);
+    }
+  }
+
+  /* ---- 3. 球与库边的碰撞 ----
+     库边是线段 AB。先求线段上离球心 P 最近的点 Q：
+       t = clamp( (P-A)·(B-A) / |B-A|², 0, 1 )，Q = A + t·(B-A)
+     若 |P-Q| < 球半径则发生碰撞，法线 n = (P-Q)/|P-Q|。
+     把速度分解为法向 vn 和切向 vt：法向反弹并乘恢复系数（v -= (1+e)·vn·n），切向略微损失。
+     因为用的是“最近点”，线段端点（袋角）会自然地表现为一个圆角。 */
+  for (let i = 0; i < n; i++){
+    const b = bs[i];
+    if (b.potted) continue;
+    if (b.x > L + BR && b.x < R - BR && b.y > T + BR && b.y < B - BR) continue;   // 离库边还远，跳过
+    for (let s = 0; s < SEGS.length; s++){
+      const sg = SEGS[s];
+      const t = clamp(((b.x - sg.ax) * sg.dx + (b.y - sg.ay) * sg.dy) * sg.il2, 0, 1);
+      const qx = sg.ax + sg.dx * t, qy = sg.ay + sg.dy * t;
+      const ex = b.x - qx, ey = b.y - qy, e2 = ex * ex + ey * ey;
+      if (e2 >= BR * BR || e2 === 0) continue;
+      const e = Math.sqrt(e2), nx = ex / e, ny = ey / e;
+      b.x = qx + nx * BR; b.y = qy + ny * BR;                    // 推回到刚好接触的位置
+      const vn = b.vx * nx + b.vy * ny;
+      if (vn < 0){
+        b.vx -= (1 + E_CUSH) * vn * nx; b.vy -= (1 + E_CUSH) * vn * ny;
+        const tx = -ny, ty = nx, vt = b.vx * tx + b.vy * ty, loss = vt * (1 - CUSH_TANGENT);
+        b.vx -= loss * tx; b.vy -= loss * ty;
+        Sfx.cushion(-vn);
+      }
+    }
+  }
+
+  /* ---- 4. 进洞判定：球心进入球袋的判定半径即落袋 ---- */
+  for (let i = 0; i < n; i++){
+    const b = bs[i];
+    if (b.potted) continue;
+    let done = false;
+    for (let p = 0; p < POCKETS.length && !done; p++){
+      const pk = POCKETS[p], dx = b.x - pk.x, dy = b.y - pk.y;
+      if (dx * dx + dy * dy < pk.cap * pk.cap){ potBall(b, pk); done = true; }
+    }
+    // 保险：万一有球越过了库边后沿，按落入最近的球袋处理
+    if (!done && (b.x < L - CUSH - 4 || b.x > R + CUSH + 4 || b.y < T - CUSH - 4 || b.y > B + CUSH + 4)){
+      let best = POCKETS[0], bd = Infinity;
+      for (let p = 0; p < POCKETS.length; p++){
+        const pk = POCKETS[p], dd = (b.x - pk.x) * (b.x - pk.x) + (b.y - pk.y) * (b.y - pk.y);
+        if (dd < bd){ bd = dd; best = pk; }
+      }
+      potBall(b, best);
+    }
+  }
+}
+
+/* =====================================================================
+   六、击球与回合规则（双人轮流）
+   ===================================================================== */
+/* 根据拖拽点计算击球方向和力度：方向 = 从鼠标指向白球（弹弓式），力度 ∝ 拖拽距离 */
+function aimInfo(){
+  if (!G.drag) return null;
+  const vx = G.cue.x - G.drag.x, vy = G.cue.y - G.drag.y, pull = Math.hypot(vx, vy);
+  if (pull < 1) return null;
+  const power = clamp((pull - PULL_DEAD) / PULL_MAX, 0, 1) * G.trim;
+  return { dx: vx / pull, dy: vy / pull, power: power };
+}
+function releaseShot(){
+  const a = aimInfo();
+  G.drag = null;
+  if (!a || a.power <= 0){ setPower(0); return; }              // 拖回白球附近松手 = 取消
+  G.strike = { dx: a.dx, dy: a.dy, power: a.power, t: 0, from: BR + 5 + a.power * 70 };
+  G.phase = 'strike';
+  updateHUD();
+}
+/* 出杆动画结束、杆头碰到白球的瞬间：给白球初速度并播放撞击音效 */
+function fire(){
+  const s = G.strike, speed = MAX_SHOT * (0.06 + 0.94 * Math.pow(s.power, 1.3));
+  G.cue.vx = s.dx * speed; G.cue.vy = s.dy * speed;
+  G.shot = { firstHit: -1, potted: [], cuePotted: false, isBreak: G.isBreak, target: targetOf(G.cur) };
+  G.stickFade = { x: G.cue.x, y: G.cue.y, dx: s.dx, dy: s.dy, t: 0 };
+  G.strike = null; G.phase = 'moving'; G.settle = 0; acc = 0;
+  Sfx.cue(s.power);
+  setPower(0);
+  updateHUD();
+}
+
+function fmtBalls(list){ return list.map(function(n){ return n + ' 号'; }).join('、'); }
+
+/* 所有球停下后结算这一杆：犯规、分组、是否连杆、胜负 */
+function resolveShot(){
+  const s = G.shot, p = G.cur, o = 1 - p, name = PNAME[p], oname = PNAME[o], cue = G.cue;
+  const colored = s.potted.filter(function(n){ return n !== 0 && n !== 8; });
+  const eight = s.potted.indexOf(8) >= 0;
+
+  // 1) 犯规判定
+  let foul = '';
+  if (s.cuePotted) foul = '白球落袋';
+  else if (s.firstHit < 0) foul = '白球没有碰到任何球';
+  else if (!s.isBreak){
+    const ft = typeOf(s.firstHit);
+    if (s.target === 'open'){ if (ft === 'eight') foul = '球局开放时不能先碰黑 8'; }
+    else if (s.target === 'eight'){ if (ft !== 'eight') foul = '应当先击中黑 8'; }
+    else if (ft !== s.target) foul = ft === 'eight' ? '先碰到了黑 8' : '先碰到了对方的球';
+  }
+
+  // 2) 黑 8 落袋：决定胜负（开球时打进则复位）
+  let extra = '';
+  if (eight){
+    if (s.isBreak){
+      const b8 = G.balls.filter(function(b){ return b.num === 8; })[0];
+      const pos = findFree(FOOT_X, CY, b8);
+      b8.potted = false; b8.sink = null; b8.x = pos.x; b8.y = pos.y; b8.vx = 0; b8.vy = 0;
+      extra = '开球打进黑 8，黑 8 复位。';
+    } else if (s.target === 'eight' && !foul){
+      endGame(p, name + ' 清台后打进黑 8'); return;
+    } else {
+      endGame(o, foul ? name + ' 打进黑 8 的同时犯规（' + foul + '）' : name + ' 提前打进了黑 8'); return;
+    }
+  }
+
+  // 3) 球局开放时，第一颗合法打进的球决定双方球组（开球杆不分组）
+  if (!foul && !s.isBreak && !G.groups[p] && colored.length){
+    const g = typeOf(colored[0]);
+    G.groups[p] = g; G.groups[o] = g === 'solid' ? 'stripe' : 'solid';
+    extra += name + ' 分到' + GNAME[g] + '。';
+  }
+
+  // 4) 是否继续击球：没有犯规，并且打进了自己球组的球
+  const mine = G.groups[p] ? colored.filter(function(n){ return typeOf(n) === G.groups[p]; }) : colored;
+  const keep = !foul && mine.length > 0;
+  let msg;
+  if (foul) msg = '犯规：' + foul + '。' + oname + ' 获得自由球。' + (colored.length ? '（已进的 ' + fmtBalls(colored) + '不复位）' : '');
+  else if (keep) msg = name + ' 打进 ' + fmtBalls(colored) + '，继续击球。';
+  else if (colored.length) msg = name + ' 只打进了对方的球（' + fmtBalls(colored) + '），交换击球权。';
+  else msg = name + ' 没有进球，交换击球权。';
+  G.last = extra + msg; G.lastBad = !!foul;
+
+  G.isBreak = false; G.kitchen = false;
+  if (!keep) G.cur = o;
+  G.ballInHand = !!foul;
+  if (foul){
+    // 自由球：白球交给对手，可放在台面任意位置
+    if (s.cuePotted){
+      cue.potted = false; cue.sink = null;
+      const pos = findFree(HEAD_X, CY, cue); cue.x = pos.x; cue.y = pos.y;
+    }
+    cue.vx = 0; cue.vy = 0;
+    G.placeOK = validPlace(cue.x, cue.y); G.placing = false;
+    G.phase = 'place';
+    Sfx.foul();
+  } else G.phase = 'aim';
+  updateHUD();
+}
+
+function endGame(winner, reason){
+  G.phase = 'over'; G.winner = winner; G.wins[winner]++;
+  G.last = reason + '，' + PNAME[winner] + ' 获胜。'; G.lastBad = false;
+  el.ovTitle.textContent = PNAME[winner] + ' 获胜';
+  el.ovTitle.style.color = winner === 0 ? 'var(--p0)' : 'var(--p1)';
+  el.ovReason.textContent = reason;
+  el.overlay.classList.add('show');
+  Sfx.win();
+  updateHUD();
+}
+
+/* =====================================================================
+   七、界面（DOM 面板）
+   ===================================================================== */
+const el = {};
+['table', 'overlay', 'ovTitle', 'ovReason', 'btnAgain', 'btnRestart', 'btnSound', 'powerCover', 'powerVal', 'tableLeft',
+ 'turnMain', 'turnSub', 'lastShot', 'w0', 'w1', 'card0', 'card1', 'tag0', 'tag1', 'group0', 'group1', 'tray0', 'tray1']
+  .forEach(function(id){ el[id] = document.getElementById(id); });
+const canvas = el.table, ctx = canvas.getContext('2d');
+
+function setPower(p){
+  el.powerCover.style.width = (100 - p * 100).toFixed(1) + '%';
+  el.powerVal.textContent = Math.round(p * 100) + '%';
+}
+function miniHTML(n, gone){
+  const c = colorOf(n);
+  return '<span class="mini' + (n > 8 ? ' stripe' : '') + (gone ? ' gone' : '') + '" style="--c:rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')"><i>' + n + '</i></span>';
+}
+function isPotted(num){
+  for (let i = 0; i < G.balls.length; i++) if (G.balls[i].num === num) return G.balls[i].potted;
+  return false;
+}
+function updateHUD(){
+  const busy = G.phase === 'moving' || G.phase === 'strike';
+  for (let p = 0; p < 2; p++){
+    const active = G.phase !== 'over' && G.cur === p, g = G.groups[p];
+    el['card' + p].classList.toggle('active', active || (G.phase === 'over' && G.winner === p));
+    el['tag' + p].textContent = G.phase === 'over' ? (G.winner === p ? '获胜' : '落败') : (active ? (busy ? '球在滚动' : '击球中') : '等待');
+    if (g){
+      const left = remaining(g);
+      el['group' + p].textContent = GNAME[g] + ' · ' + (left > 0 ? '还剩 ' + left + ' 颗' : '已清台，打黑 8');
+      let h = '';
+      for (let n = (g === 'solid' ? 1 : 9); n <= (g === 'solid' ? 7 : 15); n++) h += miniHTML(n, isPotted(n));
+      h += miniHTML(8, isPotted(8));
+      el['tray' + p].innerHTML = h;
+    } else {
+      el['group' + p].textContent = '球组待定';
+      el['tray' + p].innerHTML = '<em>打进第一颗球后确定球组</em>';
+    }
+  }
+  el.w0.textContent = G.wins[0]; el.w1.textContent = G.wins[1];
+
+  const main = el.turnMain;
+  main.className = 'turn p' + (G.phase === 'over' ? G.winner : G.cur);
+  if (G.phase === 'over'){ main.textContent = PNAME[G.winner] + ' 获胜'; el.turnSub.textContent = '点击“再来一局”继续，由另一位玩家开球'; }
+  else {
+    main.textContent = PNAME[G.cur] + (G.isBreak ? ' 开球' : ' 击球');
+    let sub;
+    if (G.phase === 'place') sub = '自由球：移动鼠标，点击台面放置白球';
+    else if (busy) sub = '等待所有球停下';
+    else if (G.isBreak) sub = '按住白球向后拖拽蓄力，松开击球';
+    else {
+      const t = targetOf(G.cur);
+      sub = t === 'open' ? '球局开放：先打进的球决定球组' : (t === 'eight' ? '目标：黑 8' : '目标：' + GNAME[t]);
+    }
+    el.turnSub.textContent = sub;
+  }
+  el.lastShot.textContent = G.last;
+  el.lastShot.classList.toggle('bad', G.lastBad);
+  el.tableLeft.textContent = '台面剩余：全色 ' + remaining('solid') + ' · 花色 ' + remaining('stripe') + ' · 黑 8 ' + remaining('eight');
+}
+
+/* =====================================================================
+   八、绘制
+   ===================================================================== */
+let SCALE = 1;                             // 逻辑坐标 → 画布像素的缩放
+const tableLayer = document.createElement('canvas');   // 静态球桌只画一次，之后每帧直接贴图
+
+function mulberry32(a){                    // 固定种子的随机数，保证木纹每次都一样
+  return function(){ a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+function roundRect(c, x, y, w, h, r){
+  c.beginPath(); c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w, y + r);
+  c.lineTo(x + w, y + h - r); c.quadraticCurveTo(x + w, y + h, x + w - r, y + h); c.lineTo(x + r, y + h);
+  c.quadraticCurveTo(x, y + h, x, y + h - r); c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
+}
+function polyPath(c, pts){
+  c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+  c.closePath();
+}
+
+function buildTable(){
+  tableLayer.width = canvas.width; tableLayer.height = canvas.height;
+  const c = tableLayer.getContext('2d'), rnd = mulberry32(20240607);
+  c.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+  c.clearRect(0, 0, VW, VH);
+
+  // 棕色木质边框 + 木纹
+  let g = c.createLinearGradient(0, 0, 0, VH);
+  g.addColorStop(0, '#7c4b25'); g.addColorStop(0.5, '#5f3718'); g.addColorStop(1, '#482810');
+  roundRect(c, 0, 0, VW, VH, 26); c.fillStyle = g; c.fill();
+  c.save(); roundRect(c, 0, 0, VW, VH, 26); c.clip();
+  for (let i = 0; i < 170; i++){
+    const y = rnd() * VH, w = rnd() * 1.3 + 0.3;
+    c.strokeStyle = rnd() < 0.5 ? 'rgba(30,14,4,' + (0.06 + rnd() * 0.12) + ')' : 'rgba(255,205,150,' + (0.03 + rnd() * 0.06) + ')';
+    c.lineWidth = w; c.beginPath(); c.moveTo(-10, y);
+    c.bezierCurveTo(VW * 0.3, y + (rnd() - 0.5) * 14, VW * 0.7, y + (rnd() - 0.5) * 14, VW + 10, y + (rnd() - 0.5) * 8); c.stroke();
+  }
+  c.restore();
+  c.lineWidth = 2; c.strokeStyle = 'rgba(255,220,170,.22)'; roundRect(c, 1.5, 1.5, VW - 3, VH - 3, 25); c.stroke();
+  c.strokeStyle = 'rgba(0,0,0,.45)'; roundRect(c, 0.5, 0.5, VW - 1, VH - 1, 26); c.stroke();
+
+  // 绿色呢绒台面
+  const bx = RAIL, by = RAIL, bw = VW - 2 * RAIL, bh = VH - 2 * RAIL;
+  g = c.createRadialGradient(CX, CY - 30, 40, CX, CY, 540);
+  g.addColorStop(0, '#23a062'); g.addColorStop(0.55, '#178049'); g.addColorStop(1, '#0f6338');
+  c.fillStyle = g; roundRect(c, bx, by, bw, bh, 5); c.fill();
+  c.save(); roundRect(c, bx, by, bw, bh, 5); c.clip();
+  for (let i = 0; i < 9000; i++){                                // 呢绒的细小颗粒
+    c.fillStyle = rnd() < 0.5 ? 'rgba(255,255,255,.035)' : 'rgba(0,0,0,.05)';
+    c.fillRect(bx + rnd() * bw, by + rnd() * bh, 1.2, 1.2);
+  }
+  // 开球线、置球点
+  c.strokeStyle = 'rgba(255,255,255,.13)'; c.lineWidth = 1; c.beginPath(); c.moveTo(HEAD_X, T); c.lineTo(HEAD_X, B); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.28)';
+  c.beginPath(); c.arc(HEAD_X, CY, 2.2, 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.arc(FOOT_X, CY, 2.2, 0, Math.PI * 2); c.fill();
+  // 库边在台面上的投影
+  c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 9 * SCALE; c.shadowOffsetX = 2 * SCALE; c.shadowOffsetY = 3 * SCALE;
+  c.fillStyle = '#0d5a33';
+  CUSHIONS.forEach(function(p){ polyPath(c, p); c.fill(); });
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetX = 0; c.shadowOffsetY = 0;
+  // 库边本体：鼻线一侧亮，靠木框一侧暗
+  CUSHIONS.forEach(function(p, i){
+    const horizontal = i < 4, top = i === 0 || i === 1, left = i === 4;
+    let gg;
+    if (horizontal) gg = top ? c.createLinearGradient(0, T - CUSH, 0, T) : c.createLinearGradient(0, B + CUSH, 0, B);
+    else gg = left ? c.createLinearGradient(L - CUSH, 0, L, 0) : c.createLinearGradient(R + CUSH, 0, R, 0);
+    gg.addColorStop(0, '#0b4d2c'); gg.addColorStop(0.7, '#15794a'); gg.addColorStop(1, '#1f9459');
+    polyPath(c, p); c.fillStyle = gg; c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(p[1][0], p[1][1]); c.lineTo(p[2][0], p[2][1]); c.stroke();
+  });
+  c.restore();
+  c.strokeStyle = 'rgba(0,0,0,.5)'; c.lineWidth = 2; roundRect(c, bx, by, bw, bh, 5); c.stroke();
+  c.strokeStyle = 'rgba(255,215,160,.16)'; c.lineWidth = 1; roundRect(c, bx - 1.5, by - 1.5, bw + 3, bh + 3, 6); c.stroke();
+
+  // 球袋：皮质袋口 + 黑色洞口
+  POCKETS.forEach(function(pk){
+    g = c.createRadialGradient(pk.x, pk.y, pk.r - 2, pk.x, pk.y, pk.r + 6);
+    g.addColorStop(0, '#120b05'); g.addColorStop(0.6, '#3a2412'); g.addColorStop(1, '#22150a');
+    c.fillStyle = g; c.beginPath(); c.arc(pk.x, pk.y, pk.r + 5, 0, Math.PI * 2); c.fill();
+    g = c.createRadialGradient(pk.x - 3, pk.y - 3, 2, pk.x, pk.y, pk.r);
+    g.addColorStop(0, '#000'); g.addColorStop(0.75, '#050505'); g.addColorStop(1, '#161616');
+    c.fillStyle = g; c.beginPath(); c.arc(pk.x, pk.y, pk.r, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = 'rgba(255,225,180,.16)'; c.lineWidth = 1; c.beginPath(); c.arc(pk.x, pk.y, pk.r + 5, 0, Math.PI * 2); c.stroke();
+  });
+
+  // 木框上的菱形瞄准标记
+  c.fillStyle = 'rgba(246,236,214,.85)';
+  function diamond(x, y){ c.beginPath(); c.moveTo(x, y - 4.5); c.lineTo(x + 3, y); c.lineTo(x, y + 4.5); c.lineTo(x - 3, y); c.closePath(); c.fill(); }
+  for (let i = 1; i < 8; i++){ if (i === 4) continue; const x = L + FW * i / 8; diamond(x, RAIL / 2); diamond(x, VH - RAIL / 2); }
+  for (let i = 1; i < 4; i++){ const y = T + FH * i / 4; diamond(RAIL / 2, y); diamond(VW - RAIL / 2, y); }
+}
+
+/* 球的投影贴图 */
+const shadowSpr = document.createElement('canvas');
+(function(){
+  shadowSpr.width = shadowSpr.height = 64;
+  const c = shadowSpr.getContext('2d'), g = c.createRadialGradient(32, 32, 6, 32, 32, 32);
+  g.addColorStop(0, 'rgba(0,0,0,.6)'); g.addColorStop(0.55, 'rgba(0,0,0,.28)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = g; c.fillRect(0, 0, 64, 64);
+})();
+const BALL_DRAW = DIAM * (SPR / 2) / SPR_R;    // 贴图绘制到逻辑坐标的边长
+
+function drawBall(b, x, y, scale, alpha){
+  if (b.dirty) renderSprite(b);
+  const s = BALL_DRAW * scale;
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(b.spr, x - s / 2, y - s / 2, s, s);
+  ctx.globalAlpha = 1;
+}
+function powerColor(p){ return 'hsl(' + Math.round(130 - 130 * p) + ',88%,56%)'; }
+
+/* 球杆：tip 端距白球球心 off，沿击球方向的反方向延伸 */
+function drawStick(x, y, dx, dy, off, alpha){
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x, y); ctx.rotate(Math.atan2(-dy, -dx));       // 旋转后 +x 轴指向球杆尾部
+  const len = 350, a = off, b = off + len;
+  // 球杆投影：屏幕上固定向右下偏移 (3,5)，这里换算到球杆自身的坐标系（-dx,-dy 即球杆朝向的 cos/sin）
+  const ox = -3 * dx - 5 * dy, oy = 3 * dy - 5 * dx;
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  ctx.beginPath(); ctx.moveTo(a + ox, -2.6 + oy); ctx.lineTo(b + ox, -4.8 + oy); ctx.lineTo(b + ox, 4.8 + oy); ctx.lineTo(a + ox, 2.6 + oy); ctx.closePath(); ctx.fill();
+  const g = ctx.createLinearGradient(0, -5, 0, 5);
+  g.addColorStop(0, '#f3dcab'); g.addColorStop(0.5, '#d9b574'); g.addColorStop(1, '#a8823f');
+  ctx.fillStyle = g;                                            // 前节（枫木）
+  ctx.beginPath(); ctx.moveTo(a + 12, -2.7); ctx.lineTo(a + 215, -3.9); ctx.lineTo(a + 215, 3.9); ctx.lineTo(a + 12, 2.7); ctx.closePath(); ctx.fill();
+  const g2 = ctx.createLinearGradient(0, -5, 0, 5);
+  g2.addColorStop(0, '#5a3a22'); g2.addColorStop(0.5, '#2c1a0e'); g2.addColorStop(1, '#120a05');
+  ctx.fillStyle = g2;                                           // 后节（深色握把）
+  ctx.beginPath(); ctx.moveTo(a + 215, -3.9); ctx.lineTo(b, -4.8); ctx.lineTo(b, 4.8); ctx.lineTo(a + 215, 3.9); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#c9a24a'; ctx.fillRect(a + 213, -4, 3, 8);   // 铜箍
+  ctx.fillStyle = '#f4f1e8'; ctx.fillRect(a + 4, -2.7, 8, 5.4); // 先角
+  ctx.fillStyle = '#3d7fc4'; ctx.fillRect(a, -2.5, 4, 5);       // 皮头（巧粉蓝）
+  ctx.restore();
+}
+
+/* 瞄准预测：从白球沿击球方向发出射线，求最先碰到的球或库边。
+   射线与“半径为 2r 的圆”求交，得到碰撞瞬间白球球心的位置（幽灵球） */
+function castAim(ox, oy, dx, dy){
+  let best = Infinity, hit = null;
+  for (let i = 0; i < G.balls.length; i++){
+    const b = G.balls[i];
+    if (b.potted || b.num === 0) continue;
+    const fx = b.x - ox, fy = b.y - oy, proj = fx * dx + fy * dy;       // 球心在射线方向上的投影长度
+    if (proj <= 0) continue;
+    const perp2 = fx * fx + fy * fy - proj * proj;                      // 球心到射线的垂直距离的平方
+    if (perp2 >= DIAM2) continue;
+    const t = proj - Math.sqrt(DIAM2 - perp2);
+    if (t < best){ best = t; hit = b; }
+  }
+  let tw = Infinity, axis = '';
+  if (dx > 0){ const t = (R - BR - ox) / dx; if (t < tw){ tw = t; axis = 'x'; } }
+  if (dx < 0){ const t = (L + BR - ox) / dx; if (t < tw){ tw = t; axis = 'x'; } }
+  if (dy > 0){ const t = (B - BR - oy) / dy; if (t < tw){ tw = t; axis = 'y'; } }
+  if (dy < 0){ const t = (T + BR - oy) / dy; if (t < tw){ tw = t; axis = 'y'; } }
+  if (hit && best <= tw) return { t: Math.max(0, best), ball: hit, axis: '', gx: ox + dx * best, gy: oy + dy * best };
+  tw = Math.max(0, tw);
+  return { t: tw, ball: null, axis: axis, gx: ox + dx * tw, gy: oy + dy * tw };
+}
+
+function drawAim(){
+  const a = aimInfo();
+  if (!a) return;
+  const c = G.cue, col = powerColor(a.power);
+  // 蓄力线（弹弓线）：白球 → 鼠标，线越长力度越大
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = col; ctx.globalAlpha = 0.5; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(G.drag.x, G.drag.y); ctx.stroke();
+  ctx.globalAlpha = 0.9; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(G.drag.x, G.drag.y, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  if (a.power > 0){
+    // 瞄准线：白球 → 幽灵球
+    const h = castAim(c.x, c.y, a.dx, a.dy);
+    ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.4; ctx.setLineDash([7, 6]);
+    ctx.beginPath(); ctx.moveTo(c.x + a.dx * BR, c.y + a.dy * BR); ctx.lineTo(h.gx, h.gy); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(h.gx, h.gy, BR - 0.6, 0, Math.PI * 2); ctx.stroke();
+    if (h.ball){
+      // 目标球沿两球连心线方向前进；白球沿切线方向偏出
+      const nx = (h.ball.x - h.gx) / DIAM, ny = (h.ball.y - h.gy) / DIAM, dot = a.dx * nx + a.dy * ny;
+      const len = 36 + 90 * a.power * dot;
+      ctx.strokeStyle = 'rgba(255,214,90,.9)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(h.ball.x + nx * BR, h.ball.y + ny * BR); ctx.lineTo(h.ball.x + nx * (BR + len), h.ball.y + ny * (BR + len)); ctx.stroke();
+      let tx = a.dx - dot * nx, ty = a.dy - dot * ny;
+      const tl = Math.hypot(tx, ty);
+      if (tl > 0.02){
+        tx /= tl; ty /= tl;
+        const l2 = 14 + 50 * a.power * tl;
+        ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(h.gx + tx * BR, h.gy + ty * BR); ctx.lineTo(h.gx + tx * (BR + l2), h.gy + ty * (BR + l2)); ctx.stroke();
+      }
+    } else {
+      // 碰库后的反弹方向
+      const rx = h.axis === 'x' ? -a.dx : a.dx, ry = h.axis === 'y' ? -a.dy : a.dy;
+      ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(h.gx, h.gy); ctx.lineTo(h.gx + rx * 46, h.gy + ry * 46); ctx.stroke();
+    }
+    // 白球周围的力度环
+    ctx.strokeStyle = col; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(c.x, c.y, BR + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * a.power); ctx.stroke();
+  }
+  ctx.restore();
+  drawStick(c.x, c.y, a.dx, a.dy, BR + 5 + a.power * 70, a.power > 0 ? 1 : 0.45);
+}
+
+function render(){
+  ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+  ctx.clearRect(0, 0, VW, VH);
+  ctx.drawImage(tableLayer, 0, 0, VW, VH);
+  const bs = G.balls, placing = G.phase === 'place';
+
+  // 自由球摆放时提示可放区域（开球时只能放在开球线左侧）
+  if (placing && G.kitchen){
+    ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fillRect(L, T, HEAD_X - L, FH);
+  }
+  // 投影
+  for (let i = 0; i < bs.length; i++){
+    const b = bs[i];
+    if (b.potted) continue;
+    const s = BR * 2.7;
+    ctx.globalAlpha = (placing && b === G.cue) ? 0.5 : 1;
+    ctx.drawImage(shadowSpr, b.x + 2.5 - s / 2, b.y + 4 - s / 2, s, s);
+  }
+  ctx.globalAlpha = 1;
+  // 正在落袋的球：滑向袋心、缩小、淡出
+  for (let i = 0; i < bs.length; i++){
+    const b = bs[i];
+    if (!b.sink) continue;
+    const k = b.sink.t, e = 1 - (1 - k) * (1 - k);
+    drawBall(b, b.sink.x0 + (b.sink.px - b.sink.x0) * e, b.sink.y0 + (b.sink.py - b.sink.y0) * e, 1 - 0.42 * k, 1 - k * k);
+  }
+  // 台面上的球
+  for (let i = 0; i < bs.length; i++){
+    const b = bs[i];
+    if (b.potted) continue;
+    drawBall(b, b.x, b.y, 1, (placing && b === G.cue) ? 0.82 : 1);
+  }
+
+  const c = G.cue;
+  if (placing){
+    ctx.strokeStyle = G.placeOK ? 'rgba(80,235,150,.95)' : 'rgba(255,90,70,.95)';
+    ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.arc(c.x, c.y, BR + 5, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  } else if (G.phase === 'aim'){
+    if (G.drag) drawAim();
+    else {
+      // 待击球时白球周围的呼吸光圈，提示“按住这里拖拽”
+      const pulse = 0.5 + 0.5 * Math.sin(G.time * 4);
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.25 + 0.4 * pulse) + ')'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(c.x, c.y, BR + 4 + 2.5 * pulse, 0, Math.PI * 2); ctx.stroke();
+    }
+  } else if (G.phase === 'strike'){
+    const s = G.strike, k = Math.min(1, s.t / STRIKE_TIME);
+    drawStick(c.x, c.y, s.dx, s.dy, s.from + (BR + 1 - s.from) * k * k, 1);        // 球杆加速送向白球
+  }
+  if (G.stickFade){
+    const f = G.stickFade, k = f.t / 0.3;
+    drawStick(f.x, f.y, f.dx, f.dy, BR + 1 - 8 * Math.min(1, k * 3), 1 - k);       // 击球后球杆略微前送并淡出
+  }
+}
+
+/* =====================================================================
+   九、输入（Pointer Events，同时支持鼠标和触屏）
+   ===================================================================== */
+function pointerPos(e){
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * VW / r.width, y: (e.clientY - r.top) * VH / r.height };
+}
+function nearCue(p){ return Math.hypot(p.x - G.cue.x, p.y - G.cue.y) <= GRAB_R; }
+function movePlace(p){
+  const maxX = G.kitchen ? HEAD_X : R - BR;
+  G.cue.x = clamp(p.x, L + BR, maxX); G.cue.y = clamp(p.y, T + BR, B - BR);
+  G.placeOK = validPlace(G.cue.x, G.cue.y);
+}
+function cancelDrag(){ if (G.drag){ G.drag = null; setPower(0); } }
+
+canvas.addEventListener('pointerdown', function(e){
+  if (e.button !== undefined && e.button !== 0) return;
+  Sfx.init();
+  const p = pointerPos(e);
+  if (G.phase === 'place'){
+    movePlace(p); G.placing = true;
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 个别浏览器不支持时忽略 */ }
+  } else if (G.phase === 'aim' && nearCue(p)){
+    G.drag = p; G.trim = 1;
+    canvas.style.cursor = 'grabbing';
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 同上 */ }
+  }
+  e.preventDefault();
+});
+canvas.addEventListener('pointermove', function(e){
+  const p = pointerPos(e);
+  if (G.phase === 'place'){ movePlace(p); canvas.style.cursor = 'move'; return; }
+  if (G.drag){
+    G.drag = p;
+    const a = aimInfo(); setPower(a ? a.power : 0);
+    return;
+  }
+  canvas.style.cursor = (G.phase === 'aim' && nearCue(p)) ? 'grab' : 'default';
+});
+canvas.addEventListener('pointerup', function(e){
+  if (G.phase === 'place'){
+    if (G.placing && G.placeOK){ G.phase = 'aim'; canvas.style.cursor = 'grab'; updateHUD(); }
+    G.placing = false;
+    return;
+  }
+  if (G.drag && G.phase === 'aim'){ G.drag = pointerPos(e); releaseShot(); canvas.style.cursor = 'default'; }
+});
+canvas.addEventListener('pointercancel', function(){ cancelDrag(); G.placing = false; });
+canvas.addEventListener('contextmenu', function(e){ e.preventDefault(); cancelDrag(); });
+/* 拖拽时滚轮微调力度：可以拉得很远来精确瞄准，再用滚轮把力度降下来 */
+canvas.addEventListener('wheel', function(e){
+  if (!G.drag) return;
+  e.preventDefault();
+  G.trim = clamp(G.trim - (e.deltaY > 0 ? 0.05 : -0.05), 0.1, 1);
+  const a = aimInfo(); setPower(a ? a.power : 0);
+}, { passive: false });
+/* 自由球（或开球）时双击白球可以重新摆放 */
+canvas.addEventListener('dblclick', function(e){
+  if (G.phase === 'aim' && G.ballInHand && nearCue(pointerPos(e))){
+    G.drag = null; G.placing = false; G.phase = 'place'; G.placeOK = validPlace(G.cue.x, G.cue.y);
+    setPower(0); updateHUD();
+  }
+});
+window.addEventListener('keydown', function(e){ if (e.key === 'Escape') cancelDrag(); });
+
+el.btnRestart.addEventListener('click', function(){ Sfx.init(); newGame(); });
+el.btnAgain.addEventListener('click', function(){ Sfx.init(); newGame(); });
+el.btnSound.addEventListener('click', function(){
+  Sfx.enabled = !Sfx.enabled;
+  el.btnSound.textContent = '音效：' + (Sfx.enabled ? '开' : '关');
+  if (Sfx.enabled) Sfx.init();
+});
+
+/* 画布尺寸跟随容器宽度，并按设备像素比提高分辨率，保证高分屏上清晰 */
+function resize(){
+  const cssW = canvas.clientWidth || 800, dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  const w = Math.max(320, Math.round(cssW * dpr)), h = Math.round(w * VH / VW);
+  if (canvas.width === w && canvas.height === h) return;
+  canvas.width = w; canvas.height = h;
+  SCALE = w / VW;
+  buildTable();
+}
+window.addEventListener('resize', resize);
+
+/* =====================================================================
+   十、游戏主循环
+   requestAnimationFrame 让浏览器在每次屏幕刷新前回调 frame()。
+   · 渲染：每帧一次。
+   · 物理：与刷新率解耦。把这一帧经过的真实时间 dt 放进累加器 acc，
+     再按固定步长 SUB_DT（1/480 秒）一小步一小步地消耗掉。
+     这样无论 60Hz 还是 144Hz 屏幕，球的运动都完全一致；
+     同时每步位移远小于球半径，高速球不会“穿过”别的球或库边。
+   ===================================================================== */
+function update(dt){
+  G.time += dt;
+  if (G.phase === 'strike'){
+    G.strike.t += dt;
+    if (G.strike.t >= STRIKE_TIME) fire();
+  }
+  if (G.phase === 'moving'){
+    acc += dt;
+    while (acc >= SUB_DT){ physicsStep(SUB_DT); acc -= SUB_DT; }
+  }
+  // 推进落袋动画
+  let busy = false;
+  for (let i = 0; i < G.balls.length; i++){
+    const b = G.balls[i];
+    if (b.sink){ b.sink.t += dt / 0.3; if (b.sink.t >= 1) b.sink = null; else busy = true; }
+  }
+  // 所有球都停下（且落袋动画播完）后稍等片刻，再结算这一杆
+  if (G.phase === 'moving'){
+    if (!busy){
+      for (let i = 0; i < G.balls.length; i++){
+        const b = G.balls[i];
+        if (!b.potted && (b.vx !== 0 || b.vy !== 0)){ busy = true; break; }
+      }
+    }
+    if (busy) G.settle = 0;
+    else { G.settle += dt; if (G.settle > 0.3) resolveShot(); }
+  }
+  if (G.stickFade){ G.stickFade.t += dt; if (G.stickFade.t >= 0.3) G.stickFade = null; }
+}
+
+let lastTime = performance.now();
+function frame(now){
+  const dt = Math.min(0.05, Math.max(0, (now - lastTime) / 1000));   // 限制最大步长，切换标签页回来时不会“快进”
+  lastTime = now;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+
+resize();
+newGame();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
